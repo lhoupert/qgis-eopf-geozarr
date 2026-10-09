@@ -150,7 +150,7 @@ Neither GUI route was clicked through for this guide. Both use standard QGIS and
 - [#1](https://github.com/lhoupert/qgis-eopf-geozarr/issues/1) GDAL 3.13.3 Zarr: zoomed-out reads download the whole full-res shard before using the overview
 - [#2](https://github.com/lhoupert/qgis-eopf-geozarr/issues/2) QGIS STAC browser ignores Zarr assets whose media type has parameters
 - [#3](https://github.com/lhoupert/qgis-eopf-geozarr/issues/3) Add Raster Layer 'Protocol: HTTP(S)' cannot open a Zarr store
-- [#4](https://github.com/lhoupert/qgis-eopf-geozarr/issues/4) GDAL Zarr: classic open of a group path fails ('No such file or directory')
+- [#4](https://github.com/lhoupert/qgis-eopf-geozarr/issues/4) GDAL Zarr: group path in `ZARR:"root":/group` gives a misleading error (intended behaviour, docs gap)
 - [#5](https://github.com/lhoupert/qgis-eopf-geozarr/issues/5) Possible half-pixel georeferencing offset (spatial:transform looks like pixel centres)
 - [#6](https://github.com/lhoupert/qgis-eopf-geozarr/issues/6) EOPF Explorer TiTiler: collection mosaic tiles fail for Zarr items (422/500)
 - [#7](https://github.com/lhoupert/qgis-eopf-geozarr/issues/7) STAC items lack a data-coverage / nodata percentage for picking the best scene
