@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.aux.xml
+*.vrt
+*.tif
+*.png
+*.log
+eopf_uk_previews/
+.venv/
+.DS_Store
