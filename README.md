@@ -49,9 +49,15 @@ The helper:
 
 The bands keep their float reflectance values, so the Identify tool, the raster calculator and Processing all work on real data.
 
-Measured with headless QGIS 4.2.2, rendering 1000x1000 px on a home connection: about 2 s to add the layer.
-A full-scene render takes about 2.7 s and downloads ~7 MB. A 10 km view takes about 4 s.
-Peak memory stays below 0.5 GB.
+What to expect (QGIS 4.2.2, home connection). Adding the layer takes about 2 s. The VRT never reads the 10 m
+arrays when zoomed out, but which coarser level GDAL picks depends on how many device pixels the map canvas has:
+- **Real GUI, maximised window on a HiDPI screen** (~4400x2500 device px): the first full-scene RGB render read
+  the whole r20m level, ~250 MB in ~35 s. After that, re-renders and pans at 1:250k and 1:10k come from cache in
+  under 1 s; a new 1:50k area reads 40-90 MB of r10m in 13-16 s. QGIS memory grew to ~4.5 GB over a pan/zoom session.
+- **Small canvas** (headless 1000x1000 px render): a full scene reads r120m, ~7 MB in ~2.7 s; a 10 km view ~4 s.
+
+That HiDPI is why GDAL chose r20m, and that the memory growth is GDAL's block cache (default 5% of RAM), are
+likely but not yet tested.
 
 Without QGIS (plain GDAL Python), the same file can write the VRT for you to open in any GDAL tool:
 ```sh
@@ -107,15 +113,15 @@ It ignores assets of type `application/vnd.zarr; version=3; profile=multiscales`
 
 | Method | Keeps multiscales? | RGB? | Reflectance values? | Measured speed (full scene, 1000 px) | When to use |
 |---|---|---|---|---|---|
-| **A. Helper VRT (default)** | Yes (r10m ... r720m) | Yes | Yes (float) | ~2-3 s, ~7 MB; 10 km view ~2.5-4 s, ~14 MB | Almost always |
+| **A. Helper VRT (default)** | Yes (r10m ... r720m) | Yes | Yes (float) | 1000 px canvas: ~2-3 s, ~7 MB. HiDPI GUI: first render ~35 s, ~250 MB (r20m), then cached | Almost always |
 | B. TiTiler XYZ | On the server | Yes (styled) | No (8-bit PNG) | ~1-6 s | Quick look, browsing many scenes |
 | C. Plain `ZARR:` layer, r60m | No (fixed 60 m) | One band | Yes | ~3.5 s, ~12 MB (+ ~2.5 s to open) | No-code, single band |
 | C. Plain `ZARR:` layer, r10m | Detected but defeated by the GDAL bug | One band | Yes | 40-140 s, ~338 MB, ~1 GB RAM | Only when zoomed in close |
 | `gdal.BuildVRT` over r10m arrays | Nominally | Yes | Yes | 120-160 s, ~1 GB | Avoid |
 | [qgis_geozarr](https://github.com/wietzesuijker/qgis-geozarr) plugin v0.2.0 | Reportedly the same VRT approach (not verified) | Yes | Yes | **untested** | If you prefer a plugin |
 
-Timings are from headless renders and vary 2-3x with the network. The byte counts are the reliable comparison.
-Interactive pan/zoom in the GUI was not benchmarked.
+Timings are from headless 1000 px renders unless stated, and vary 2-3x with the network. The byte counts are the
+reliable comparison. Method A was also checked in the real GUI (numbers above); the other rows were not.
 
 ---
 
@@ -126,8 +132,9 @@ GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR
 GDAL_PAM_ENABLED=NO
 ```
 
-These stop GDAL from probing for sidecar files over HTTP: 99 requests drop to 8 per layer. Opening a layer goes
-from ~11.7 s to ~4.2 s; rendering barely changes.
+These stop GDAL from probing for sidecar files over HTTP, which makes opening a plain `ZARR:` layer a little
+faster (in a GUI test, 9 requests dropped to 5 and 1.6-2.0 s to 1.2 s; an earlier headless test saw a bigger gain).
+Rendering is unchanged. `eopf_geozarr.py` already sets both, so method A doesn't need them.
 - In QGIS: *Settings > Options > System > Environment*. Tick **Use custom variables**, add both (Apply: *Overwrite*),
   then **restart QGIS**. (This is not *Options > Variables*: those are expression variables.)
 - Flatpak, once from a terminal:
@@ -177,6 +184,10 @@ garbage-collected. Keep a reference: `ds = gdal.Open(uri); a = ds.GetRasterBand(
   for the UK or any bbox. It picks the least cloudy scene per MGRS tile, with backups from other orbits, and adds
   clickable footprints that carry the `item_id`. The full UK run makes a ~130 MB COG. Tested on a small bbox.
   The output is a picture, not reflectance.
+- [`tools/zarr_overview_repro.py`](tools/zarr_overview_repro.py) reproduces issue #1 (and #4) without EOPF data:
+  it writes a small local sharded Zarr v3 store with multiscales, serves it over HTTP and counts the bytes GDAL
+  reads. On GDAL 3.13.3 a 1024 px read of a 4096 px array pulls 64 MB instead of the 3.6 MB overview.
+  Run `python3 tools/zarr_overview_repro.py /tmp/work` with any Python that has GDAL >= 3.13 and numpy.
 - [`examples/screenshot.py`](examples/screenshot.py) saves the QGIS window and map canvas as PNG from the
   console (tested only with an offscreen stand-in window, not the real QGIS GUI).
 
@@ -192,7 +203,7 @@ The catch is in GDAL 3.13.3, and it is still there on master. When a read is dow
 `GDALRasterBandFromArray::IRasterIO` calls `AdviseRead` on the *full-resolution* window before it picks the
 overview. For a sharded array that prefetches every 10 m chunk in view, and no config option turns it off.
 A VRT whose bands have explicit `<Overview>` entries pointing at the r20m ... r720m arrays avoids this, because
-the overview is chosen at VRT level. A full-scene view then reads only r120m (~7 MB for RGB); a close zoom reads
+the overview is chosen at VRT level. A full-scene view then reads a coarse level (r120m on a small canvas, r20m on a large HiDPI one) instead of r10m; a close zoom reads
 only the r10m chunks in the window. `eopf_geozarr.build_vrt()` writes exactly that.
 
 ## Licence
