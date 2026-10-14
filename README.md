@@ -89,8 +89,9 @@ ZARR:"/vsicurl/<store>":/measurements/reflectance/r60m/b04
 `https://s3.explorer.eopf.copernicus.eu/esa-zarr-sentinel-explorer-fra/tests-output/sentinel-2-l2a/<item_id>.zarr`.
 Pasting `ZARR:"/vsicurl/<store>/measurements/reflectance"` instead lists all 63 band/level arrays to choose from.
 
-This is the simplest route, but **avoid the r10m arrays unless you stay zoomed in**. With GDAL 3.13.3, a zoomed-out
-view first downloads the whole 10 m shard (~336 MB per band) and only then reads the coarse level. One full-scene
+This is the simplest route, but **avoid the r10m arrays unless you stay zoomed in**. With GDAL 3.13, a zoomed-out
+view first downloads all the 10 m data in view (for a full scene, the whole ~336 MB shard per band) and only then
+reads the coarse level ([OSGeo/gdal#15380](https://github.com/OSGeo/gdal/issues/15380)). One full-scene
 render took 40-140 s and used ~1 GB of RAM. An RGB stack built with `gdal.BuildVRT` / *Build Virtual Raster*
 pulls ~1 GB, so use method A instead.
 
@@ -147,7 +148,7 @@ Neither GUI route was clicked through for this guide. Both use standard QGIS and
 
 ## Known issues
 
-- [#1](https://github.com/lhoupert/qgis-eopf-geozarr/issues/1) GDAL 3.13.3 Zarr: zoomed-out reads download the whole full-res shard before using the overview
+- [#1](https://github.com/lhoupert/qgis-eopf-geozarr/issues/1) GDAL 3.13 Zarr: zoomed-out reads fetch the full-res data in view before using the overview (upstream: [OSGeo/gdal#15380](https://github.com/OSGeo/gdal/issues/15380))
 - [#2](https://github.com/lhoupert/qgis-eopf-geozarr/issues/2) QGIS STAC browser ignores Zarr assets whose media type has parameters
 - [#3](https://github.com/lhoupert/qgis-eopf-geozarr/issues/3) Add Raster Layer 'Protocol: HTTP(S)' cannot open a Zarr store
 - [#4](https://github.com/lhoupert/qgis-eopf-geozarr/issues/4) GDAL Zarr: group path in `ZARR:"root":/group` gives a misleading error (intended behaviour, docs gap)
@@ -188,6 +189,8 @@ garbage-collected. Keep a reference: `ds = gdal.Open(uri); a = ds.GetRasterBand(
   it writes a small local sharded Zarr v3 store with multiscales, serves it over HTTP and counts the bytes GDAL
   reads. On GDAL 3.13.3 a 1024 px read of a 4096 px array pulls 64 MB instead of the 3.6 MB overview.
   Run `python3 tools/zarr_overview_repro.py /tmp/work` with any Python that has GDAL >= 3.13 and numpy.
+  A shorter repro that uses only the GDAL command-line tools is in
+  [OSGeo/gdal#15380](https://github.com/OSGeo/gdal/issues/15380).
 - [`examples/screenshot.py`](examples/screenshot.py) saves the QGIS window and map canvas as PNG from the
   console (tested only with an offscreen stand-in window, not the real QGIS GUI).
 
@@ -199,9 +202,11 @@ Each scene's `measurements/reflectance` group holds the bands at six levels: `r1
 requests. GDAL 3.13 turns the GeoZarr `multiscales` metadata into overviews, so `gdalinfo` on `r10m/b04` shows
 overviews 5490, 1830, 915, 305 and 152.
 
-The catch is in GDAL 3.13.3, and it is still there on master. When a read is downsampled,
+The catch is in GDAL 3.13 (3.12 is not affected), and it is still there on master: reported as
+[OSGeo/gdal#15380](https://github.com/OSGeo/gdal/issues/15380). When a read is downsampled,
 `GDALRasterBandFromArray::IRasterIO` calls `AdviseRead` on the *full-resolution* window before it picks the
-overview. For a sharded array that prefetches every 10 m chunk in view, and no config option turns it off.
+overview, so every 10 m chunk in view is prefetched. This is not specific to sharding. `GDAL_NUM_THREADS=1`
+avoids it for unsharded arrays only, and for these sharded stores no config option we tried turns it off.
 A VRT whose bands have explicit `<Overview>` entries pointing at the r20m ... r720m arrays avoids this, because
 the overview is chosen at VRT level. A full-scene view then reads a coarse level (r120m on a small canvas, r20m on a large HiDPI one) instead of r10m; a close zoom reads
 only the r10m chunks in the window. `eopf_geozarr.build_vrt()` writes exactly that.
